@@ -1,0 +1,34 @@
+#!/bin/sh
+
+ip link del edgeb type veth peer name coreb1
+ip link del coreb2 type veth peer name coreb3
+ip link del coreb4 type veth peer name coreb5
+ip link del coreb6 type veth peer name edge1
+ip link del edgec type veth peer name corec1
+ip link del corec2 type veth peer name corec3
+ip link del corec4 type veth peer name corec5
+ip link del corec6 type veth peer name edge2
+ip link del edged type veth peer name cored1
+ip link del cored2 type veth peer name cored3
+ip link del cored4 type veth peer name cored5
+ip link del cored6 type veth peer name edge3
+ip link del edgee type veth peer name coree1
+ip link del coree2 type veth peer name coree3
+ip link del coree4 type veth peer name coree5
+ip link del coree6 type veth peer name edge4
+ip link del edgef type veth peer name coref1
+ip link del coref2 type veth peer name coref3
+ip link del coref4 type veth peer name coref5
+ip link del coref6 type veth peer name edge5
+ip link del edgeg type veth peer name coreg1
+ip link del coreg2 type veth peer name coreg3
+ip link del coreg4 type veth peer name coreg5
+ip link del coreg6 type veth peer name edge6
+ip link del edgeh type veth peer name coreh1
+ip link del coreh2 type veth peer name coreh3
+ip link del coreh4 type veth peer name coreh5
+ip link del coreh6 type veth peer name edge7
+ip link del edgei type veth peer name corei1
+ip link del corei2 type veth peer name corei3
+ip link del corei4 type veth peer name corei5
+ip link del corei6 type veth peer name edge8
