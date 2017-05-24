@@ -53,7 +53,23 @@
 #include "group_table.h"
 #include "timeval.h"
 #include "list.h"
+#ifdef __APPLE__
+#include <OpenCL/opencl.h>
+#else
+#include <CL/cl.h>
+#endif
 
+extern char *sourcepath;
+extern char *source_str;
+extern size_t source_size;
+extern cl_platform_id platform_id;
+extern cl_device_id device_id;
+extern cl_uint ret_num_platforms;
+extern cl_uint ret_num_devices;
+extern cl_int ret;
+extern cl_context context;
+extern cl_program program;
+extern cl_command_queue command_queue;
 
 struct rconn;
 struct pvconn;

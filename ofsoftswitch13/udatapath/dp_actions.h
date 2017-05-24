@@ -65,6 +65,12 @@ dp_actions_list_has_out_port(size_t actions_num, struct ofl_action_header **acti
 bool
 dp_actions_list_has_out_group(size_t actions_num, struct ofl_action_header **actions, uint32_t group);
 
+uint16_t
+recalc_csumcl16(uint16_t old_csum, uint16_t old_u16, uint16_t new_u16);
+
+uint16_t
+recalc_csumcl32(uint16_t old_csum, uint32_t old_u32, uint32_t new_u32);
+
 /* Validates the set of actions based on the available ports and groups. Returns an OpenFlow
  * error if the actions are invalid. */
 ofl_err

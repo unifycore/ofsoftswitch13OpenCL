@@ -31,6 +31,18 @@
  * Credits: Zoltán Lajos Kis
  */
 
+//added by michael DP start
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <inttypes.h>
+/*errno and strerror*/
+#include <errno.h>
+#include <time.h>
+#include <unistd.h>
+#include <string.h>
+
+#include <sys/time.h>
 #include <netinet/in.h>
 #include "csum.h"
 #include "dp_exp.h"
@@ -47,6 +59,18 @@
 #include "util.h"
 #include "oflib/oxm-match.h"
 #include "hash.h"
+
+#ifdef __APPLE__
+#include <OpenCL/opencl.h>
+#else
+#include <CL/cl.h>
+#include <CL/cl_platform.h>
+#endif
+#include "check_opencl.h"
+#define MAX_SOURCE_SIZE (0x100000)
+//#define val_size 10000
+//added by michael DP end
+
 
 #define LOG_MODULE VLM_dp_acts
 
@@ -123,7 +147,7 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                                    (*act->field->value << 2);
                     uint16_t old_val = htons((ipv4->ip_ihl_ver << 8) + ipv4->ip_tos);
                     uint16_t new_val = htons((ipv4->ip_ihl_ver << 8) + tos);
-                    ipv4->ip_csum = recalc_csum16(ipv4->ip_csum, old_val, new_val);
+                    ipv4->ip_csum = recalc_csumcl16(ipv4->ip_csum, old_val, new_val);
                     ipv4->ip_tos = tos;
                 }
                 else if (pkt->handle_std->proto->ipv6){
@@ -141,7 +165,7 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                                (*act->field->value & IP_ECN_MASK);
                     uint16_t old_val = htons((ipv4->ip_ihl_ver << 8) + ipv4->ip_tos);
                     uint16_t new_val = htons((ipv4->ip_ihl_ver << 8) + tos);
-                    ipv4->ip_csum = recalc_csum16(ipv4->ip_csum, old_val, new_val);
+                    ipv4->ip_csum = recalc_csumcl16(ipv4->ip_csum, old_val, new_val);
                     ipv4->ip_tos = tos;
                 }
                 else if (pkt->handle_std->proto->ipv6){
@@ -158,7 +182,7 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 uint8_t proto = *act->field->value;
                 old_val = htons((ipv4->ip_ttl << 8) + ipv4->ip_proto);
                 new_val =  htons((ipv4->ip_ttl << 8) + proto);
-                ipv4->ip_csum = recalc_csum16(ipv4->ip_csum, old_val, new_val);
+                ipv4->ip_csum = recalc_csumcl16(ipv4->ip_csum, old_val, new_val);
                 ipv4->ip_proto = proto;
                 break;
             }
@@ -168,15 +192,15 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 /*Reconstruct TCP or UDP checksum*/
                 if (pkt->handle_std->proto->tcp != NULL) {
                     struct tcp_header *tcp = pkt->handle_std->proto->tcp;
-                    tcp->tcp_csum = recalc_csum32(tcp->tcp_csum,
+                    tcp->tcp_csum = recalc_csumcl32(tcp->tcp_csum,
                         ipv4->ip_src, *((uint32_t*) act->field->value));
                 } else if (pkt->handle_std->proto->udp != NULL) {
                     struct udp_header *udp = pkt->handle_std->proto->udp;
-                    udp->udp_csum = recalc_csum32(udp->udp_csum,
+                    udp->udp_csum = recalc_csumcl32(udp->udp_csum,
                         ipv4->ip_src, *((uint32_t*) act->field->value));
                 }
 
-                ipv4->ip_csum = recalc_csum32(ipv4->ip_csum, ipv4->ip_src,
+                ipv4->ip_csum = recalc_csumcl32(ipv4->ip_csum, ipv4->ip_src,
                                      *((uint32_t*) act->field->value));
 
                 ipv4->ip_src = *((uint32_t*) act->field->value);
@@ -188,15 +212,15 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 /*Reconstruct TCP or UDP checksum*/
                 if (pkt->handle_std->proto->tcp != NULL) {
                     struct tcp_header *tcp = pkt->handle_std->proto->tcp;
-                    tcp->tcp_csum = recalc_csum32(tcp->tcp_csum,
+                    tcp->tcp_csum = recalc_csumcl32(tcp->tcp_csum,
                         ipv4->ip_dst, *((uint32_t*) act->field->value));
                 } else if (pkt->handle_std->proto->udp != NULL) {
                     struct udp_header *udp = pkt->handle_std->proto->udp;
-                    udp->udp_csum = recalc_csum32(udp->udp_csum,
+                    udp->udp_csum = recalc_csumcl32(udp->udp_csum,
                         ipv4->ip_dst, *((uint32_t*) act->field->value));
                 }
 
-                ipv4->ip_csum = recalc_csum32(ipv4->ip_csum, ipv4->ip_dst,
+                ipv4->ip_csum = recalc_csumcl32(ipv4->ip_csum, ipv4->ip_dst,
                                     *((uint32_t*) act->field->value));
 
                 ipv4->ip_dst = *((uint32_t*) act->field->value);
@@ -205,28 +229,28 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
             case OXM_OF_TCP_SRC:{
                 struct tcp_header *tcp = pkt->handle_std->proto->tcp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
-                tcp->tcp_csum = recalc_csum16(tcp->tcp_csum, tcp->tcp_src, v);
+                tcp->tcp_csum = recalc_csumcl16(tcp->tcp_csum, tcp->tcp_src, v);
                 tcp->tcp_src = v;
                 break;
             }
             case OXM_OF_TCP_DST:{
                 struct tcp_header *tcp = pkt->handle_std->proto->tcp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
-                tcp->tcp_csum = recalc_csum16(tcp->tcp_csum, tcp->tcp_dst, v);
+                tcp->tcp_csum = recalc_csumcl16(tcp->tcp_csum, tcp->tcp_dst, v);
                 tcp->tcp_dst = v;
                 break;
             }
             case OXM_OF_UDP_SRC:{
                 struct udp_header *udp = pkt->handle_std->proto->udp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
-                udp->udp_csum = recalc_csum16(udp->udp_csum, udp->udp_src, v);
+                udp->udp_csum = recalc_csumcl16(udp->udp_csum, udp->udp_src, v);
                 udp->udp_src = v;
                 break;
             }
             case OXM_OF_UDP_DST:{
                 struct udp_header *udp = pkt->handle_std->proto->udp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
-                udp->udp_csum = recalc_csum16(udp->udp_csum, udp->udp_dst, v);
+                udp->udp_csum = recalc_csumcl16(udp->udp_csum, udp->udp_dst, v);
                 udp->udp_dst = v;
                 break;
             }
@@ -264,7 +288,7 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                     uint8_t icmp_type = *act->field->value;
                     old_val = htons((icmp_header->icmp_type << 8) + icmp_header->icmp_code);
                     new_val =  htons((icmp_type << 8) + icmp_header->icmp_code);
-                    icmp_header->icmp_csum = recalc_csum16(icmp_header->icmp_csum , old_val, new_val);
+                    icmp_header->icmp_csum = recalc_csumcl16(icmp_header->icmp_csum , old_val, new_val);
                     icmp_header->icmp_type = *act->field->value;
                 break;
             }
@@ -275,7 +299,7 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                     uint8_t icmp_code = *act->field->value;
                     old_val = htons((icmp_header->icmp_type << 8) + icmp_header->icmp_code);
                     new_val =  htons((icmp_header->icmp_type << 8) + icmp_code);
-                    icmp_header->icmp_csum = recalc_csum16(icmp_header->icmp_csum , old_val, new_val);
+                    icmp_header->icmp_csum = recalc_csumcl16(icmp_header->icmp_csum , old_val, new_val);
                     icmp_header->icmp_code = *act->field->value;
                 break;
             }
@@ -899,6 +923,7 @@ TODO Set IPv6 hop limit*/
 static void
 set_nw_ttl(struct packet *pkt, struct ofl_action_set_nw_ttl *act) {
     packet_handle_std_validate(pkt->handle_std);
+
     if (pkt->handle_std->proto->ipv4 != NULL) {
         struct ip_header *ipv4 = pkt->handle_std->proto->ipv4;
 
@@ -915,33 +940,29 @@ set_nw_ttl(struct packet *pkt, struct ofl_action_set_nw_ttl *act) {
     }
 }
 
-/* Executes dec nw ttl action.
-TODO Dec IPv6 hop limit*/
 static void
 dec_nw_ttl(struct packet *pkt, struct ofl_action_header *act UNUSED) {
-    packet_handle_std_validate(pkt->handle_std);
-    if (pkt->handle_std->proto->ipv4 != NULL) {
+	if (pkt->handle_std->proto->ipv4 != NULL) {
 
-        struct ip_header *ipv4 = pkt->handle_std->proto->ipv4;
+		struct ip_header *ipv4 = pkt->handle_std->proto->ipv4;
 
-        if (ipv4->ip_ttl > 0) {
-            uint8_t new_ttl = ipv4->ip_ttl - 1;
-            uint16_t old_val = htons((ipv4->ip_proto) + (ipv4->ip_ttl<<8));
-            uint16_t new_val = htons((ipv4->ip_proto) + (new_ttl<<8));
-            ipv4->ip_csum = recalc_csum16(ipv4->ip_csum, old_val, new_val);
-            ipv4->ip_ttl = new_ttl;
-        }
-    } else if (pkt->handle_std->proto->ipv6 != NULL){
-        struct ipv6_header *ipv6 = pkt->handle_std->proto->ipv6;
-        if (ipv6->ipv6_hop_limit > 0){
-            --ipv6->ipv6_hop_limit;
-       }
-    }
-    else {
-        VLOG_WARN_RL(LOG_MODULE, &rl, "Trying to execute DEC_NW_TTL action on packet with no ipv4.");
-    }
+		if (ipv4->ip_ttl > 0) {
+		    uint8_t new_ttl = ipv4->ip_ttl - 1;
+		    uint16_t old_val = htons((ipv4->ip_proto) + (ipv4->ip_ttl<<8));
+		    uint16_t new_val = htons((ipv4->ip_proto) + (new_ttl<<8));
+		    ipv4->ip_csum = recalc_csumcl16(ipv4->ip_csum, old_val, new_val);
+		    ipv4->ip_ttl = new_ttl;
+		}
+	    } else if (pkt->handle_std->proto->ipv6 != NULL){
+		struct ipv6_header *ipv6 = pkt->handle_std->proto->ipv6;
+		if (ipv6->ipv6_hop_limit > 0){
+		    --ipv6->ipv6_hop_limit;
+	       }
+	    }
+	    else {
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Trying to execute DEC_NW_TTL action on packet with no ipv4.");
+	    }
 }
-
 
 void
 dp_execute_action(struct packet *pkt,
@@ -1198,6 +1219,206 @@ dp_actions_validate(struct datapath *dp, size_t actions_num, struct ofl_action_h
     }
 
     return 0;
+}
+
+uint16_t
+recalc_csumcl32(uint16_t old_csum, uint32_t old_u32, uint32_t new_u32)
+{
+    return recalc_csumcl16(recalc_csumcl16(old_csum, old_u32, new_u32),
+                         old_u32 >> 16, new_u32 >> 16);
+}
+
+uint16_t
+recalc_csumcl16(uint16_t old_csum, uint16_t old_u16, uint16_t new_u16)
+{	
+     cl_ushort *old;
+     cl_ushort *old16;
+     cl_ushort new16;
+     cl_ushort *hc_complement;
+     cl_ushort *m_complement;
+     cl_ushort hc_prime_complement;
+     cl_kernel kernel[2] = {NULL, NULL};
+     cl_mem old_csumMem = NULL;
+     cl_mem old_u16Mem = NULL;     
+     cl_mem hc_complementMem = NULL;
+     cl_mem m_complementMem = NULL;
+     
+     char log[100000];
+     size_t log_size;
+	cl_uint sum;	
+	old = (cl_ushort *)malloc(sizeof(cl_ushort));
+	old16 = (cl_ushort *)malloc(sizeof(cl_ushort));	
+	hc_complement = (cl_ushort *)malloc(sizeof(cl_ushort));
+	m_complement = (cl_ushort *)malloc(sizeof(cl_ushort));	
+	old[0] = old_csum;
+	old16[0] = old_u16;
+	new16 = new_u16;
+                 
+     //create memory buffers for each argument
+     old_csumMem = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(cl_ushort), NULL, &ret);
+     old_u16Mem = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(cl_ushort), NULL, &ret);     
+     hc_complementMem = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(cl_ushort), NULL, &ret);
+     m_complementMem = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(cl_ushort), NULL, &ret);     
+
+     //copy the all lists to their respective memory buffers (input data)
+     ret = clEnqueueWriteBuffer(command_queue, old_csumMem, CL_TRUE, 0, sizeof(cl_ushort), old, 0, NULL, NULL); 
+     ret = clEnqueueWriteBuffer(command_queue, old_u16Mem, CL_TRUE, 0, sizeof(cl_ushort), old16, 0, NULL, NULL);    
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to respective memory buffers program. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to build program. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     
+     //create task parallel openCL kernels
+     kernel[0] = clCreateKernel(program, "negateOldCsum", &ret);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to create [0] kernel. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to build program. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     kernel[1] = clCreateKernel(program, "negateOldValue", &ret);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to create [1] kernel. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to create [1] kernel. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     
+     //openCL kernel arguments setting
+     ret = clSetKernelArg(kernel[0], 0, sizeof(cl_mem), (void *)&old_csumMem); //maybe (void *)
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to create 00 param. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to create 00 param. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     ret = clSetKernelArg(kernel[0], 1, sizeof(cl_mem), (void *)&hc_complementMem);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to create 01 param. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to create 01 param. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     ret = clSetKernelArg(kernel[1], 0, sizeof(cl_mem), (void *)&old_u16Mem);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to create 10 param. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to create 10 param. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     ret = clSetKernelArg(kernel[1], 1, sizeof(cl_mem), (void *)&m_complementMem);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to create 11 param. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to create 11 param. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     
+     //execute them as task parallel
+     ret = clEnqueueTask(command_queue, kernel[0], 0, NULL, NULL);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to run 0 kernel. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to run 0 kernel. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     ret = clEnqueueTask(command_queue, kernel[1], 0, NULL, NULL);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to run 1 kernel. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to run 1 kernel. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     
+	ret = clEnqueueReadBuffer(command_queue, hc_complementMem, CL_TRUE, 0, sizeof(cl_ushort), hc_complement, 0, NULL, NULL);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to run 2 kernel. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to run copy hc_complement. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+	ret = clEnqueueReadBuffer(command_queue, m_complementMem, CL_TRUE, 0, sizeof(cl_ushort), m_complement, 0, NULL, NULL); 
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to run 2 kernel. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to run copy m_complement. Error Code=%d\n",ret);			
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);
+		exit(1);
+	};
+     //finalization
+     ret = clFlush(command_queue);
+     ret = clFinish(command_queue);
+
+	sum = hc_complement[0] + m_complement[0] + new16;
+	hc_prime_complement = sum + (sum >> 16);
+     return ~hc_prime_complement;
 }
 
 ofl_err

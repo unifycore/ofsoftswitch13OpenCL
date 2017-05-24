@@ -37,6 +37,12 @@
  *
  */
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <inttypes.h>
+/*errno and strerror*/
+#include <netinet/in.h>
 #include "datapath.h"
 #include <assert.h>
 #include <errno.h>
@@ -65,11 +71,29 @@
 #include "rconn.h"
 #include "stp.h"
 #include "vconn.h"
+#ifdef __APPLE__
+#include <OpenCL/opencl.h>
+#else
+#include <CL/cl.h>
+#endif
+#define MAX_SOURCE_SIZE (0x100000)
 
 #define LOG_MODULE VLM_dp
 
 static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(60, 60);
 
+char *sourcepath = "/home/michal-dp/Dokumenty/ofsoftswitchNewNew/ofsoftswitch13/lib/csumNew.cl";
+char *source_str;
+size_t source_size;
+cl_platform_id platform_id;
+cl_device_id device_id;
+cl_uint ret_num_platforms;
+cl_uint ret_num_devices;
+cl_int ret;
+cl_context context;
+cl_program program;
+cl_command_queue command_queue;
+FILE *fp;
 
 static struct remote *remote_create(struct datapath *dp, struct rconn *rconn, struct rconn *rconn_aux);
 static void remote_run(struct datapath *, struct remote *);
@@ -169,6 +193,86 @@ dp_new(void) {
     #if defined(OF_HW_PLAT) && (defined(UDATAPATH_AS_LIB) || defined(USE_NETDEV))
         dp_hw_drv_init(dp);
     #endif
+
+    //openCL initialization
+    fp = fopen(sourcepath, "r");
+    if (!fp) {
+	fprintf(stderr, "Failed to open opencl kernel file '%s' : %s\n", sourcepath, strerror(errno));
+	exit(1);
+    }
+VLOG_WARN_RL(LOG_MODULE, &rl, "Global inicializacia start");
+    source_str = (char *)malloc(MAX_SOURCE_SIZE);
+    source_size = fread(source_str, 1, MAX_SOURCE_SIZE, fp);
+    fclose(fp);
+    ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
+    if (ret != CL_SUCCESS)
+
+	{	
+
+		printf("Unable to get platform ID. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to get platform ID. Error Code=%d\n",ret);
+		exit(1);
+	}
+    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
+    if (ret != CL_SUCCESS)
+
+	{	
+
+		printf("Unable to get device ID. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to get device ID. Error Code=%d\n",ret);
+		exit(1);
+	}
+    context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
+    if (ret != CL_SUCCESS)
+
+	{	
+
+		printf("Unable to create context. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to create context. Error Code=%d\n",ret);
+		exit(1);
+	}
+    command_queue = clCreateCommandQueue(context, device_id, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, &ret);
+    if (ret != CL_SUCCESS)
+
+	{	
+
+		printf("Unable to create queue. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to create queue. Error Code=%d\n",ret);
+		exit(1);
+	}
+
+//create kernel program from source
+     program = clCreateProgramWithSource(context, 1, (const char **)&source_str, (const size_t *)&source_size, &ret);
+if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to create program. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to build program. Error Code=%d\n",ret);			
+		/*clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);*/
+		exit(1);
+	};
+            //free(source_str);//do not uncomment
+
+     //build program
+     ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+     if (ret != CL_SUCCESS)	
+	{	
+		printf("Unable to build program. Error Code=%d\n",ret);
+		VLOG_WARN_RL(LOG_MODULE, &rl, "Unable to build program. Error Code=%d\n",ret);			
+		/*clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+		// Allocate memory for the log
+		// Get the log
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+		// Print the log
+		printf("%s\n", log);*/
+		exit(1);
+	};
+
+VLOG_WARN_RL(LOG_MODULE, &rl, "Global inicializacia end");
 
     return dp;
 }
